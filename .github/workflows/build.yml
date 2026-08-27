@@ -1,0 +1,42 @@
+name: Build HeistKillSwitch
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build Windows GUI App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+
+      - name: Install Fyne CLI
+        run: go install fyne.io/tools/cmd/fyne@latest
+
+      - name: Run Build Commands
+        run: |
+          go mod tidy
+          go build -o heist-gui.exe main.go
+          
+          # Add Go bin to PATH so the 'fyne' command is found
+          $env:PATH += ";$(go env GOPATH)/bin"
+          
+          fyne package -os windows -release
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeistKillSwitch-Windows
+          path: |
+            *.exe
+            *.zip
