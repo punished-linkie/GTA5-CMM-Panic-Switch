@@ -1,0 +1,65 @@
+name: Manual Release HeistKillSwitch
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+jobs:
+  release:
+    name: Build and Create Release
+    runs-on: windows-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install Fyne CLI
+        run: go install fyne.io/tools/cmd/fyne@latest
+
+      - name: Run Build Commands
+        run: |
+          go mod tidy
+          go build -o heist-gui.exe main.go
+          
+          # Add Go bin to PATH so the 'fyne' command is found
+          $env:PATH += ";$(go env GOPATH)/bin"
+          
+          fyne package -os windows -release
+
+      - name: Find generated executable
+        id: find_exe
+        run: |
+          $exe = Get-ChildItem -Filter "*.exe" | Where-Object Name -ne "heist-gui.exe" | Select-Object -First 1 -ExpandProperty Name
+          if (-not $exe) {
+              $exe = "heist-gui.exe"
+          }
+          echo "Found executable: $exe"
+          echo "EXE_NAME=$exe" >> $env:GITHUB_OUTPUT
+
+      - name: Create Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ github.event.inputs.tag_name }}
+          git push origin ${{ github.event.inputs.tag_name }}
+
+      - name: Create GitHub Release and Upload Asset
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event.inputs.tag_name }}
+          files: ${{ steps.find_exe.outputs.EXE_NAME }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
