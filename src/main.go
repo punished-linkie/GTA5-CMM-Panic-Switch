@@ -6,11 +6,13 @@ import (
 	"image/color"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -90,7 +92,7 @@ func killswitch(g *HeistGUI) {
 		fmt.Printf("%s already exists\n", settings_file)
 	}
 
-	myApp := app.New()
+	myApp := app.NewWithID("com.heistkillswitch")
 	myApp.Settings().SetTheme(&customTheme{Theme: theme.DefaultTheme()})
 
 	myWindow := myApp.NewWindow("GTA V CMM Panic Switch")
@@ -209,6 +211,37 @@ func killswitch(g *HeistGUI) {
 	})
 	initBtn.Importance = widget.HighImportance
 
+	avg_latency := canvas.NewText("0", color.White)
+	worst_latency := canvas.NewText("0", color.White)
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			fyne.DoAndWait(func() {
+
+				change_color := func(l *canvas.Text, val *int64) {
+					if *val < 60 {
+						l.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
+					} else if *val < 120 {
+						l.Color = color.RGBA{R: 255, G: 255, B: 0, A: 255}
+					} else {
+						l.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+					}
+				}
+
+				change_color(avg_latency, &stats.Avg_latency)
+				change_color(worst_latency, &stats.Worst_latency)
+
+				avg_latency.Text = strconv.FormatInt(stats.Avg_latency, 10)
+				worst_latency.Text = strconv.FormatInt(stats.Worst_latency, 10)
+				avg_latency.Refresh()
+				worst_latency.Refresh()
+			})
+		}
+	}()
+
 	topContainer := container.NewVBox(
 		widget.NewSeparator(),
 		container.NewGridWithColumns(2, widget.NewLabel("Operating Mode:"), roleSelect),
@@ -219,6 +252,18 @@ func killswitch(g *HeistGUI) {
 			recorder, registerBtn,
 		),
 		initBtn,
+
+		widget.NewSeparator(),
+		widget.NewLabel("Connection Stats"),
+		container.NewHBox(
+			widget.NewLabel("Average Latency (ms):"),
+			avg_latency,
+		),
+		container.NewHBox(
+			widget.NewLabel("Worst Latency (ms):"),
+			worst_latency,
+		),
+
 		widget.NewSeparator(),
 		widget.NewLabel("Live Status Log:"),
 	)
