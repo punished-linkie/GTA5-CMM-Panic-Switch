@@ -5,6 +5,5 @@
 ## How to build
 ```
 go mod tidy
-go build -o heist-gui.exe main.go
-fyne package -os windows -release
+fyne package -os windows --appID com.heistkillswitch --exe $PWD/HeistKillSwitch.exe --src src --icon $PWD\assets\icon.png -release
 ```
