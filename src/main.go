@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"image/color"
 	"os"
+	"runtime/debug"
 	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -44,6 +46,42 @@ type HeistGUI struct {
 
 func main() {
 
+	g := &HeistGUI{
+		clients: make(map[*websocket.Conn]bool),
+	}
+
+	// This defer acts as your global catch block for the goroutine
+	defer func() {
+		if r := recover(); r != nil {
+			// Open or create a crash log file
+			f, err := os.OpenFile("crash.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err != nil {
+				fmt.Printf("Failed to open crash log: %v", err)
+				return
+			}
+			defer f.Close()
+
+			// Write the panic message and the full stack trace to the file
+			stack := debug.Stack()
+
+			_, _ = fmt.Fprintf(f, "\nCRASH TIME: %s\n", time.Now().Format(time.RFC850))
+			_, _ = fmt.Fprintf(f, "CRASH PANIC: %v\n%s\n", r, stack)
+			{
+				g.DuckToken = "****"
+				config, _ := json.Marshal(g)
+				_, _ = fmt.Fprintf(f, "CONFIG: %s\n\n\n", string(config))
+			}
+
+			// Optionally print to Stderr as well so it's visible in console
+			fmt.Fprintf(os.Stderr, "Program crashed. Details written to crash.log\n")
+		}
+	}()
+
+	killswitch(g)
+}
+
+func killswitch(g *HeistGUI) {
+
 	if _, err := os.Stat(settings_file); os.IsNotExist(err) {
 		_ = os.WriteFile(settings_file,
 			[]byte(default_config), 0644)
@@ -57,10 +95,6 @@ func main() {
 
 	myWindow := myApp.NewWindow("GTA V CMM Panic Switch")
 	myWindow.Resize(fyne.NewSize(500, 600))
-
-	g := &HeistGUI{
-		clients: make(map[*websocket.Conn]bool),
-	}
 
 	{
 		settings, errr := os.ReadFile(settings_file)
