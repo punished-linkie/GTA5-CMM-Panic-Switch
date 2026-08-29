@@ -23,7 +23,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.27'
 
       - name: Install Fyne CLI
         run: go install fyne.io/tools/cmd/fyne@latest
@@ -31,12 +31,11 @@ jobs:
       - name: Run Build Commands
         run: |
           go mod tidy
-          go build -o heist-gui.exe main.go
           
           # Add Go bin to PATH so the 'fyne' command is found
           $env:PATH += ";$(go env GOPATH)/bin"
           
-          fyne package -os windows -release
+          fyne package -os windows --appID com.heistkillswitch --exe $PWD/HeistKillSwitch.exe --src src --icon $PWD\assets\icon.png -release
 
       - name: Find generated executable
         id: find_exe
