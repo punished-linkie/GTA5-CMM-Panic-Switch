@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image/color"
 	"os"
-	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
@@ -46,43 +45,19 @@ type HeistGUI struct {
 	isRecording bool
 }
 
+var state = &HeistGUI{
+	clients: make(map[*websocket.Conn]bool),
+}
+
 func main() {
+	defer recoverLog()
 
-	g := &HeistGUI{
-		clients: make(map[*websocket.Conn]bool),
-	}
-
-	// This defer acts as your global catch block for the goroutine
-	defer func() {
-		if r := recover(); r != nil {
-			// Open or create a crash log file
-			f, err := os.OpenFile("crash.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-			if err != nil {
-				fmt.Printf("Failed to open crash log: %v", err)
-				return
-			}
-			defer f.Close()
-
-			// Write the panic message and the full stack trace to the file
-			stack := debug.Stack()
-
-			_, _ = fmt.Fprintf(f, "\nCRASH TIME: %s\n", time.Now().Format(time.RFC850))
-			_, _ = fmt.Fprintf(f, "CRASH PANIC: %v\n%s\n", r, stack)
-			{
-				g.DuckToken = "****"
-				config, _ := json.Marshal(g)
-				_, _ = fmt.Fprintf(f, "CONFIG: %s\n\n\n", string(config))
-			}
-
-			// Optionally print to Stderr as well so it's visible in console
-			fmt.Fprintf(os.Stderr, "Program crashed. Details written to crash.log\n")
-		}
-	}()
-
-	killswitch(g)
+	killswitch(state)
 }
 
 func killswitch(g *HeistGUI) {
+
+	g.server.WriteMessage(12, []byte("aaaaa"))
 
 	if _, err := os.Stat(settings_file); os.IsNotExist(err) {
 		_ = os.WriteFile(settings_file,
@@ -183,7 +158,7 @@ func killswitch(g *HeistGUI) {
 		status.SetText("Registered " + display + ". Press it anywhere to trigger.")
 		g.appendLog("[i] Registered shortcut: " + display)
 
-		go onHotKeyPress(g, hk)
+		goSafe(onHotKeyPress, g, hk)
 	})
 
 	g.logArea = widget.NewMultiLineEntry()
@@ -196,11 +171,11 @@ func killswitch(g *HeistGUI) {
 		g.DuckToken = tokenInput.Text
 
 		if g.isHost {
-			go g.startServer()
-			go g.startDuckDNSUpdater()
+			goSafe(func() { g.startServer() })
+			goSafe(func() { g.startDuckDNSUpdater() })
 			g.appendLog("[+] Host server & IPv6 DuckDNS auto-updater initialized...")
 		} else {
-			go g.startClient()
+			goSafe(func() { g.startClient() })
 			g.appendLog(fmt.Sprintf("[*] Connecting to host at %s...", g.Addr))
 		}
 
@@ -214,7 +189,7 @@ func killswitch(g *HeistGUI) {
 	avg_latency := canvas.NewText("0", color.White)
 	worst_latency := canvas.NewText("0", color.White)
 
-	go func() {
+	goSafe(func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
@@ -240,7 +215,7 @@ func killswitch(g *HeistGUI) {
 				worst_latency.Refresh()
 			})
 		}
-	}()
+	})
 
 	topContainer := container.NewVBox(
 		widget.NewSeparator(),
