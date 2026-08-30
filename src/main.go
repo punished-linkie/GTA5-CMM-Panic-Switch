@@ -5,12 +5,13 @@ import (
 	"fmt"
 	"image/color"
 	"os"
-	"runtime/debug"
+	"strconv"
 	"sync"
 	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -44,40 +45,14 @@ type HeistGUI struct {
 	isRecording bool
 }
 
+var state = &HeistGUI{
+	clients: make(map[*websocket.Conn]bool),
+}
+
 func main() {
+	defer recoverLog()
 
-	g := &HeistGUI{
-		clients: make(map[*websocket.Conn]bool),
-	}
-
-	// This defer acts as your global catch block for the goroutine
-	defer func() {
-		if r := recover(); r != nil {
-			// Open or create a crash log file
-			f, err := os.OpenFile("crash.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-			if err != nil {
-				fmt.Printf("Failed to open crash log: %v", err)
-				return
-			}
-			defer f.Close()
-
-			// Write the panic message and the full stack trace to the file
-			stack := debug.Stack()
-
-			_, _ = fmt.Fprintf(f, "\nCRASH TIME: %s\n", time.Now().Format(time.RFC850))
-			_, _ = fmt.Fprintf(f, "CRASH PANIC: %v\n%s\n", r, stack)
-			{
-				g.DuckToken = "****"
-				config, _ := json.Marshal(g)
-				_, _ = fmt.Fprintf(f, "CONFIG: %s\n\n\n", string(config))
-			}
-
-			// Optionally print to Stderr as well so it's visible in console
-			fmt.Fprintf(os.Stderr, "Program crashed. Details written to crash.log\n")
-		}
-	}()
-
-	killswitch(g)
+	killswitch(state)
 }
 
 func killswitch(g *HeistGUI) {
@@ -90,7 +65,7 @@ func killswitch(g *HeistGUI) {
 		fmt.Printf("%s already exists\n", settings_file)
 	}
 
-	myApp := app.New()
+	myApp := app.NewWithID("com.heistkillswitch")
 	myApp.Settings().SetTheme(&customTheme{Theme: theme.DefaultTheme()})
 
 	myWindow := myApp.NewWindow("GTA V CMM Panic Switch")
@@ -181,7 +156,7 @@ func killswitch(g *HeistGUI) {
 		status.SetText("Registered " + display + ". Press it anywhere to trigger.")
 		g.appendLog("[i] Registered shortcut: " + display)
 
-		go onHotKeyPress(g, hk)
+		goSafe(onHotKeyPress, g, hk)
 	})
 
 	g.logArea = widget.NewMultiLineEntry()
@@ -194,11 +169,11 @@ func killswitch(g *HeistGUI) {
 		g.DuckToken = tokenInput.Text
 
 		if g.isHost {
-			go g.startServer()
-			go g.startDuckDNSUpdater()
+			goSafe(func() { g.startServer() })
+			goSafe(func() { g.startDuckDNSUpdater() })
 			g.appendLog("[+] Host server & IPv6 DuckDNS auto-updater initialized...")
 		} else {
-			go g.startClient()
+			goSafe(func() { g.startClient() })
 			g.appendLog(fmt.Sprintf("[*] Connecting to host at %s...", g.Addr))
 		}
 
@@ -208,6 +183,37 @@ func killswitch(g *HeistGUI) {
 		}
 	})
 	initBtn.Importance = widget.HighImportance
+
+	avg_latency := canvas.NewText("0", color.White)
+	worst_latency := canvas.NewText("0", color.White)
+
+	goSafe(func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			fyne.DoAndWait(func() {
+
+				change_color := func(l *canvas.Text, val *int64) {
+					if *val < 60 {
+						l.Color = color.RGBA{R: 0, G: 255, B: 0, A: 255}
+					} else if *val < 120 {
+						l.Color = color.RGBA{R: 255, G: 255, B: 0, A: 255}
+					} else {
+						l.Color = color.RGBA{R: 255, G: 0, B: 0, A: 255}
+					}
+				}
+
+				change_color(avg_latency, &stats.Avg_latency)
+				change_color(worst_latency, &stats.Worst_latency)
+
+				avg_latency.Text = strconv.FormatInt(stats.Avg_latency, 10)
+				worst_latency.Text = strconv.FormatInt(stats.Worst_latency, 10)
+				avg_latency.Refresh()
+				worst_latency.Refresh()
+			})
+		}
+	})
 
 	topContainer := container.NewVBox(
 		widget.NewSeparator(),
@@ -219,6 +225,18 @@ func killswitch(g *HeistGUI) {
 			recorder, registerBtn,
 		),
 		initBtn,
+
+		widget.NewSeparator(),
+		widget.NewLabel("Connection Stats"),
+		container.NewHBox(
+			widget.NewLabel("Average Latency (ms):"),
+			avg_latency,
+		),
+		container.NewHBox(
+			widget.NewLabel("Worst Latency (ms):"),
+			worst_latency,
+		),
+
 		widget.NewSeparator(),
 		widget.NewLabel("Live Status Log:"),
 	)
