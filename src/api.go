@@ -39,13 +39,13 @@ func (g *HeistGUI) startServer() {
 
 			if message.Content == "KILL_GTA" {
 				g.appendLog("\n[!] REMOTE KILL SIGNAL RECEIVED!")
-				go func() {
+				goSafe(func() {
 					for client := range g.clients {
 						if client != conn {
 							_ = client.WriteMessage(websocket.TextMessage, []byte(msg))
 						}
 					}
-				}()
+				})
 
 				g.executeKill()
 			}

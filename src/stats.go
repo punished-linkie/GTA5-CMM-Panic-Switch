@@ -14,7 +14,11 @@ type Stats struct {
 }
 
 var stats = Stats{
-	Deltas_len: 0,
+	Avg_latency:   0,
+	Worst_latency: 0,
+
+	Deltas_len:      0,
+	Deltas_last_idx: 0,
 }
 
 func (s *Stats) appendMessage(m *Message) {
